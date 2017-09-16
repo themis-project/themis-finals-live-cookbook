@@ -1,0 +1,68 @@
+upstream forward_<%= @fqdn.gsub('.', '_') %> {
+  server <%= @ip_addr %>:80;
+}
+
+server {
+  listen 80;
+
+  server_name <%= @fqdn %>;
+
+  location / {
+    return 301 https://<%= @fqdn %>$request_uri;
+  }
+}
+
+server {
+  listen 443 ssl http2;
+
+  server_name <%= @fqdn %>;
+
+  ssl_certificate <%= @ssl_certificate %>;
+  ssl_certificate_key <%= @ssl_certificate_key %>;
+
+  access_log <%= @access_log %> combined;
+  error_log <%= @error_log %> error;
+
+  more_set_headers 'Strict-Transport-Security: max-age=<%= @hsts_max_age %>';
+  more_set_headers 'X-Frame-Options: DENY';
+
+  <% if @oscp_stapling %>
+  ssl_stapling on;
+  ssl_stapling_verify on;
+  resolver 8.8.8.8 8.8.4.4 valid=300s;
+  resolver_timeout 5s;
+  <% end %>
+
+  <% if @scts %>
+  ssl_ct on;
+  ssl_ct_static_scts <%= @scts_dir %>;
+  <% end %>
+
+  <% if @hpkp && @hpkp_pins.size > 0 %>
+  more_set_headers 'Public-Key-Pins: <%= @hpkp_pins.map{ |pin| "pin-sha256=\"#{pin}\"" }.join '; ' %>; max-age=<%= @hpkp_max_age %>;';
+  <% end %>
+
+  keepalive_timeout 300;
+
+  location /stream/ {
+    proxy_http_version 1.1;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Host $host;
+    proxy_redirect off;
+    chunked_transfer_encoding off;
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 1h;
+    proxy_pass http://forward_<%= @fqdn.gsub('.', '_') %>;
+  }
+
+  location / {
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_redirect off;
+    proxy_pass http://forward_<%= @fqdn.gsub('.', '_') %>/;
+  }
+}
