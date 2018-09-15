@@ -2,6 +2,7 @@ upstream forward_<%= @fqdn.gsub('.', '_') %> {
   server <%= @ip_addr %>:80;
 }
 
+<% if @secure %>
 server {
   listen 80;
 
@@ -11,20 +12,29 @@ server {
     return 301 https://<%= @fqdn %>$request_uri;
   }
 }
+<% end %>
 
 server {
+  <% if @secure %>
   listen 443 ssl http2;
 
-  server_name <%= @fqdn %>;
+  <% if @scts %>
+  ssl_ct on;
+  <% end %>
 
-  ssl_certificate <%= @ssl_certificate %>;
-  ssl_certificate_key <%= @ssl_certificate_key %>;
+  ssl_certificate <%= @ssl_rsa_certificate %>;
+  ssl_certificate_key <%= @ssl_rsa_certificate_key %>;
+  <% if @scts %>
+  ssl_ct_static_scts <%= @scts_rsa_dir %>;
+  <% end %>
 
-  access_log <%= @access_log %> combined;
-  error_log <%= @error_log %> error;
-
-  more_set_headers 'Strict-Transport-Security: max-age=<%= @hsts_max_age %>';
-  more_set_headers 'X-Frame-Options: DENY';
+  <% if @ec_certificates %>
+  ssl_certificate <%= @ssl_ec_certificate %>;
+  ssl_certificate_key <%= @ssl_ec_certificate_key %>;
+  <% if @scts %>
+  ssl_ct_static_scts <%= @scts_ec_dir %>;
+  <% end %>
+  <% end %>
 
   <% if @oscp_stapling %>
   ssl_stapling on;
@@ -33,16 +43,21 @@ server {
   resolver_timeout 5s;
   <% end %>
 
-  <% if @scts %>
-  ssl_ct on;
-  ssl_ct_static_scts <%= @scts_dir %>;
-  <% end %>
-
   <% if @hpkp && @hpkp_pins.size > 0 %>
-  more_set_headers 'Public-Key-Pins: <%= @hpkp_pins.map{ |pin| "pin-sha256=\"#{pin}\"" }.join '; ' %>; max-age=<%= @hpkp_max_age %>;';
+  add_header Public-Key-Pins '<%= @hpkp_pins.map{ |pin| "pin-sha256=\"#{pin}\"" }.join '; ' %>; max-age=<%= @hpkp_max_age %>;' always;
+  <% end %>
+  keepalive_timeout 300;
+
+  add_header Strict-Transport-Security 'max-age=<%= @hsts_max_age %>' always;
+  add_header X-Frame-Options DENY always;
+  <% else %>
+  listen 80;
   <% end %>
 
-  keepalive_timeout 300;
+  server_name <%= @fqdn %>;
+
+  access_log <%= @access_log %> combined;
+  error_log <%= @error_log %> error;
 
   location /stream/ {
     proxy_http_version 1.1;
